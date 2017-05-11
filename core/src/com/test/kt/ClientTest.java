@@ -25,6 +25,7 @@ public class ClientTest extends ApplicationAdapter {
 
     // simulation
     private Simulation simulation;
+	private Simulation localSimulation;
 
     // player movement
     private boolean moveLeft = false;
@@ -41,6 +42,7 @@ public class ClientTest extends ApplicationAdapter {
 		camera = new OrthographicCamera(640, 480);
 		shapeRenderer = new ShapeRenderer();
         simulation = new Simulation();
+		localSimulation = new Simulation();
 
 		try {
 			client = new Client();
@@ -83,6 +85,15 @@ public class ClientTest extends ApplicationAdapter {
         this.moveRight = Gdx.input.isKeyPressed(Keys.D);
         this.jump = Gdx.input.isKeyPressed(Keys.SPACE);
 
+        // update the simulation locally
+		if (this.moveLeft) {
+			localSimulation.px -= 1;
+		}
+
+		if (this.moveRight) {
+			localSimulation.px += 1;
+		}
+
         // create network request
         CharacterControllerMessage request = new CharacterControllerMessage();
         request.timestamp = TimeUtils.nanoTime();
@@ -100,6 +111,8 @@ public class ClientTest extends ApplicationAdapter {
 
 		shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
 		shapeRenderer.setColor(1, 1, 0, 1);
+		shapeRenderer.rect(localSimulation.px, localSimulation.py, 32, 32);
+		shapeRenderer.setColor(0, 1, 0, 1);
 		shapeRenderer.rect(simulation.px, simulation.py, 32, 32);
 		shapeRenderer.end();
 	}
