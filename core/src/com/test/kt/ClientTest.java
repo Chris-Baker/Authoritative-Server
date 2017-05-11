@@ -12,9 +12,7 @@ import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryonet.Client;
 import com.esotericsoftware.kryonet.Connection;
 import com.esotericsoftware.kryonet.Listener;
-import com.test.kt.messages.CharacterControllerMessage;
-import com.test.kt.messages.PhysicsBodyMessage;
-import com.test.kt.messages.TextMessage;
+import com.test.kt.messages.*;
 
 import java.io.IOException;
 
@@ -50,18 +48,26 @@ public class ClientTest extends ApplicationAdapter {
 			Kryo kryo = client.getKryo();
 			kryo.register(TextMessage.class);
             kryo.register(CharacterControllerMessage.class);
-            kryo.register(PhysicsBodyMessage.class);
+			kryo.register(PhysicsBodyMessage.class);
+			kryo.register(SyncSimulationRequestMessage.class);
+			kryo.register(SyncSimulationResponseMessage.class);
 
 			client.start();
 			client.connect(5000, "localhost", 54555, 54777);
 
-			TextMessage request = new TextMessage();
-			request.message = "Here is the request";
+			SyncSimulationRequestMessage request = new SyncSimulationRequestMessage();
 			client.sendTCP(request);
 
 			client.addListener(new Listener() {
 				public void received (Connection connection, Object object) {
-					if (object instanceof TextMessage) {
+					if (object instanceof SyncSimulationResponseMessage) {
+						SyncSimulationResponseMessage response = (SyncSimulationResponseMessage)object;
+						localSimulation.px = response.x;
+						localSimulation.py = response.y;
+						simulation.px = response.x;
+						simulation.py = response.y;
+					}
+					else if (object instanceof TextMessage) {
 						TextMessage response = (TextMessage)object;
 						System.out.println(response.message);
 					}
