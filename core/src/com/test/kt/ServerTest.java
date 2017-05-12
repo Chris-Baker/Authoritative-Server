@@ -2,6 +2,7 @@ package com.test.kt;
 
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.utils.TimeUtils;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryonet.Connection;
 import com.esotericsoftware.kryonet.Listener;
@@ -33,6 +34,8 @@ public class ServerTest extends ApplicationAdapter {
 			kryo.register(PhysicsBodyMessage.class);
 			kryo.register(SyncSimulationRequestMessage.class);
 			kryo.register(SyncSimulationResponseMessage.class);
+			kryo.register(TimeRequestMessage.class);
+			kryo.register(TimeResponseMessage.class);
 
 			server.start();
 			server.bind(54555, 54777);
@@ -40,7 +43,15 @@ public class ServerTest extends ApplicationAdapter {
 			server.addListener(new Listener() {
 				public void received (Connection connection, Object object) {
 
-					if (object instanceof SyncSimulationRequestMessage) {
+					if (object instanceof TimeRequestMessage) {
+						TimeRequestMessage request = (TimeRequestMessage)object;
+
+						TimeResponseMessage response = new TimeResponseMessage();
+						response.clientSentTime = request.timestamp;
+						response.timestamp = TimeUtils.millis();
+						connection.sendUDP(response);
+					}
+					else if (object instanceof SyncSimulationRequestMessage) {
 						SyncSimulationResponseMessage response = new SyncSimulationResponseMessage();
 						response.x = simulation.px;
 						response.y = simulation.py;

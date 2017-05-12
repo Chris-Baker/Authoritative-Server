@@ -20,6 +20,8 @@ public class ClientTest extends ApplicationAdapter {
 
 	// network
     private Client client;
+	long ping;
+	long serverTimeAdjustment;
 
     // simulation
     private Simulation simulation;
@@ -51,16 +53,31 @@ public class ClientTest extends ApplicationAdapter {
 			kryo.register(PhysicsBodyMessage.class);
 			kryo.register(SyncSimulationRequestMessage.class);
 			kryo.register(SyncSimulationResponseMessage.class);
+			kryo.register(TimeRequestMessage.class);
+			kryo.register(TimeResponseMessage.class);
 
 			client.start();
 			client.connect(5000, "localhost", 54555, 54777);
 
-			SyncSimulationRequestMessage request = new SyncSimulationRequestMessage();
-			client.sendTCP(request);
+			SyncSimulationRequestMessage syncRequest = new SyncSimulationRequestMessage();
+			client.sendTCP(syncRequest);
+
+			TimeRequestMessage timeRequest = new TimeRequestMessage();
+			timeRequest.timestamp = TimeUtils.millis();
+			client.sendUDP(timeRequest);
 
 			client.addListener(new Listener() {
 				public void received (Connection connection, Object object) {
-					if (object instanceof SyncSimulationResponseMessage) {
+					if (object instanceof TimeResponseMessage) {
+						TimeResponseMessage response = (TimeResponseMessage)object;
+						ping = (TimeUtils.millis() - response.clientSentTime);
+						serverTimeAdjustment = response.timestamp - TimeUtils.millis() - ping;
+						System.out.println("Ping: " + ping);
+						System.out.println("Client Time: " + TimeUtils.millis());
+						System.out.println("Server Time: " + (TimeUtils.millis() + serverTimeAdjustment));
+						System.out.println("Difference: " + serverTimeAdjustment);
+					}
+					else if (object instanceof SyncSimulationResponseMessage) {
 						SyncSimulationResponseMessage response = (SyncSimulationResponseMessage)object;
 						localSimulation.px = response.x;
 						localSimulation.py = response.y;
@@ -102,7 +119,7 @@ public class ClientTest extends ApplicationAdapter {
 
         // create network request
         CharacterControllerMessage request = new CharacterControllerMessage();
-        request.timestamp = TimeUtils.nanoTime();
+        request.timestamp = TimeUtils.millis();
         request.moveLeft = this.moveLeft;
         request.moveRight = this.moveRight;
         request.jump = this.jump;
