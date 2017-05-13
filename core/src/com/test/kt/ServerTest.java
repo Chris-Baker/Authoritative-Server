@@ -40,7 +40,7 @@ public class ServerTest extends ApplicationAdapter {
 			server.start();
 			server.bind(54555, 54777);
 
-			server.addListener(new Listener() {
+			server.addListener(new Listener.LagListener(200, 200, new Listener() {
 				public void received (Connection connection, Object object) {
 
 					if (object instanceof TimeRequestMessage) {
@@ -48,7 +48,7 @@ public class ServerTest extends ApplicationAdapter {
 
 						TimeResponseMessage response = new TimeResponseMessage();
 						response.clientSentTime = request.timestamp;
-						response.timestamp = TimeUtils.millis();
+						response.timestamp = TimeUtils.nanoTime();
 						connection.sendUDP(response);
 					}
 					else if (object instanceof SyncSimulationRequestMessage) {
@@ -83,7 +83,7 @@ public class ServerTest extends ApplicationAdapter {
 //						connection.sendUDP(response);
 					}
 				}
-			});
+			}));
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -104,6 +104,7 @@ public class ServerTest extends ApplicationAdapter {
 		if (accum >= NETWORK_UPDATE_RATE) {
 			accum = 0;
 			PhysicsBodyMessage response = new PhysicsBodyMessage();
+			response.timestamp = TimeUtils.nanoTime();
 			response.x = simulation.px;
 			response.y = simulation.py;
 			server.sendToAllUDP(response);

@@ -7,6 +7,7 @@ import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.utils.TimeUtils;
 import com.esotericsoftware.kryo.Kryo;
 import com.esotericsoftware.kryonet.Client;
@@ -25,7 +26,10 @@ public class ClientTest extends ApplicationAdapter {
 
     // simulation
     private Simulation simulation;
-	private Simulation localSimulation;
+	private Simulation previousFrame;
+	private Array<SimulationSnapshot> unverifiedUpdates;
+	private Array<SimulationSnapshot> verifiedUpdates;
+	private SimulationSnapshot verifiedUpdate;
 
     // player movement
     private boolean moveLeft = false;
@@ -42,7 +46,9 @@ public class ClientTest extends ApplicationAdapter {
 		camera = new OrthographicCamera(640, 480);
 		shapeRenderer = new ShapeRenderer();
         simulation = new Simulation();
-		localSimulation = new Simulation();
+        previousFrame = new Simulation();
+		unverifiedUpdates = new Array<SimulationSnapshot>();
+		verifiedUpdates = new Array<SimulationSnapshot>();
 
 		try {
 			client = new Client();
@@ -63,24 +69,22 @@ public class ClientTest extends ApplicationAdapter {
 			client.sendTCP(syncRequest);
 
 			TimeRequestMessage timeRequest = new TimeRequestMessage();
-			timeRequest.timestamp = TimeUtils.millis();
+			timeRequest.timestamp = TimeUtils.nanoTime();
 			client.sendUDP(timeRequest);
 
 			client.addListener(new Listener() {
 				public void received (Connection connection, Object object) {
 					if (object instanceof TimeResponseMessage) {
 						TimeResponseMessage response = (TimeResponseMessage)object;
-						ping = (TimeUtils.millis() - response.clientSentTime);
-						serverTimeAdjustment = response.timestamp - TimeUtils.millis() - ping;
-						System.out.println("Ping: " + ping);
-						System.out.println("Client Time: " + TimeUtils.millis());
-						System.out.println("Server Time: " + (TimeUtils.millis() + serverTimeAdjustment));
-						System.out.println("Difference: " + serverTimeAdjustment);
+						ping = (TimeUtils.nanoTime() - response.clientSentTime);
+						serverTimeAdjustment = (response.timestamp - (ping / 2)) - response.clientSentTime;
+						System.out.println("Ping: " + TimeUtils.nanosToMillis((ping)));
+						System.out.println("Client Time: " + TimeUtils.nanosToMillis(TimeUtils.nanoTime()));
+						System.out.println("Server Time: " + TimeUtils.nanosToMillis((TimeUtils.nanoTime() + serverTimeAdjustment)));
+						System.out.println("Difference: " + TimeUtils.nanosToMillis(serverTimeAdjustment));
 					}
 					else if (object instanceof SyncSimulationResponseMessage) {
 						SyncSimulationResponseMessage response = (SyncSimulationResponseMessage)object;
-						localSimulation.px = response.x;
-						localSimulation.py = response.y;
 						simulation.px = response.x;
 						simulation.py = response.y;
 					}
@@ -90,8 +94,11 @@ public class ClientTest extends ApplicationAdapter {
 					}
 					else if (object instanceof PhysicsBodyMessage) {
                         PhysicsBodyMessage response = (PhysicsBodyMessage)object;
-                        simulation.px = response.x;
-                        simulation.py = response.y;
+                        SimulationSnapshot verifiedUpdate = new SimulationSnapshot();
+						verifiedUpdate.timestamp = response.timestamp;
+						verifiedUpdate.px = response.x;
+						verifiedUpdate.py = response.y;
+						verifiedUpdates.add(verifiedUpdate);
                     }
 				}
 			});
@@ -108,24 +115,76 @@ public class ClientTest extends ApplicationAdapter {
         this.moveRight = Gdx.input.isKeyPressed(Keys.D);
         this.jump = Gdx.input.isKeyPressed(Keys.SPACE);
 
-        // update the simulation locally
+        // update our previous frame simulation so we can calculate the deltas of everything
+        previousFrame.px = simulation.px;
+        previousFrame.py = simulation.py;
+
+        // update the simulation locally based on player input
 		if (this.moveLeft) {
-			localSimulation.px -= 1;
+			simulation.px -= 1;
+		}
+		if (this.moveRight) {
+			simulation.px += 1;
 		}
 
-		if (this.moveRight) {
-			localSimulation.px += 1;
+		// store our update as an unverified update
+		SimulationSnapshot updateDelta = new SimulationSnapshot();
+		updateDelta.timestamp = TimeUtils.nanoTime() + serverTimeAdjustment;
+		updateDelta.px = simulation.px - previousFrame.px;
+		updateDelta.py = simulation.py - previousFrame.py;
+
+		if (updateDelta.px != 0) {
+			unverifiedUpdates.add(updateDelta);
+		}
+
+		//System.out.println(updateDelta.timestamp);
+
+		// insert verified updates and reapply unverified updates
+		if (verifiedUpdates.size > 0) {
+			// get the timestamp of the verified update
+			verifiedUpdate = verifiedUpdates.pop();
+			verifiedUpdates.clear();
+
+			// reverse unverified array so the oldest update is at the end
+			unverifiedUpdates.reverse();
+
+			// loop over reversed array
+			for (int i = 0, n = unverifiedUpdates.size; i < n; i += 1) {
+				// peek oldest to see if the timestamp before the snapshot
+				if (unverifiedUpdates.peek().timestamp < verifiedUpdate.timestamp) {
+					unverifiedUpdates.pop();
+				}
+				else {
+					System.out.println("break early with remaining " + unverifiedUpdates.size);
+					break;
+				}
+			}
+
+			// reverse the array again so we can apply the deltas to the verified update
+			unverifiedUpdates.reverse();
+
+			// apply the combined verified state and deltas to the simulation
+			// apply all other state deltas to it
+			for (int i = 0, n = unverifiedUpdates.size; i < n; i += 1) {
+				System.out.println("correcting: " + i + " " + unverifiedUpdates.get(i).px);
+				verifiedUpdate.px += unverifiedUpdates.get(i).px;
+				verifiedUpdate.px += unverifiedUpdates.get(i).py;
+			}
+
+			// apply that to the simulation for rendering
+			simulation.px = verifiedUpdate.px;
+			simulation.py = verifiedUpdate.py;
+
 		}
 
         // create network request
         CharacterControllerMessage request = new CharacterControllerMessage();
-        request.timestamp = TimeUtils.millis();
+        request.timestamp = TimeUtils.nanoTime();
         request.moveLeft = this.moveLeft;
         request.moveRight = this.moveRight;
         request.jump = this.jump;
 
         client.sendUDP(request);
-
 
         // render the world
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
@@ -134,9 +193,11 @@ public class ClientTest extends ApplicationAdapter {
 
 		shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
 		shapeRenderer.setColor(1, 1, 0, 1);
-		shapeRenderer.rect(localSimulation.px, localSimulation.py, 32, 32);
-		shapeRenderer.setColor(0, 1, 0, 1);
 		shapeRenderer.rect(simulation.px, simulation.py, 32, 32);
+//		if (verifiedUpdate != null) {
+//			shapeRenderer.setColor(0, 1, 0, 1);
+//			shapeRenderer.rect(verifiedUpdate.px, verifiedUpdate.py, 32, 32);
+//		}
 		shapeRenderer.end();
 	}
 
