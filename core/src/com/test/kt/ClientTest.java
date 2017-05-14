@@ -77,10 +77,10 @@ public class ClientTest extends ApplicationAdapter {
 					if (object instanceof TimeResponseMessage) {
 						TimeResponseMessage response = (TimeResponseMessage)object;
 						ping = (TimeUtils.nanoTime() - response.clientSentTime);
-						serverTimeAdjustment = (response.timestamp - (ping / 2)) - response.clientSentTime;
+						serverTimeAdjustment = (response.timestamp - (ping)) - response.clientSentTime; // should this be ping / 2?
 						System.out.println("Ping: " + TimeUtils.nanosToMillis((ping)));
 						System.out.println("Client Time: " + TimeUtils.nanosToMillis(TimeUtils.nanoTime()));
-						System.out.println("Server Time: " + TimeUtils.nanosToMillis((TimeUtils.nanoTime() + serverTimeAdjustment)));
+						System.out.println("Server Time: " + TimeUtils.nanosToMillis((response.timestamp - (ping / 2))));
 						System.out.println("Difference: " + TimeUtils.nanosToMillis(serverTimeAdjustment));
 					}
 					else if (object instanceof SyncSimulationResponseMessage) {
@@ -129,7 +129,7 @@ public class ClientTest extends ApplicationAdapter {
 
 		// store our update as an unverified update
 		SimulationSnapshot updateDelta = new SimulationSnapshot();
-		updateDelta.timestamp = TimeUtils.nanoTime() + serverTimeAdjustment;
+		updateDelta.timestamp = TimeUtils.nanoTime();
 		updateDelta.px = simulation.px - previousFrame.px;
 		updateDelta.py = simulation.py - previousFrame.py;
 
@@ -137,38 +137,24 @@ public class ClientTest extends ApplicationAdapter {
 			unverifiedUpdates.add(updateDelta);
 		}
 
-		//System.out.println(updateDelta.timestamp);
-
 		// insert verified updates and reapply unverified updates
 		if (verifiedUpdates.size > 0) {
 			// get the timestamp of the verified update
 			verifiedUpdate = verifiedUpdates.pop();
 			verifiedUpdates.clear();
 
-			// reverse unverified array so the oldest update is at the end
-			unverifiedUpdates.reverse();
+			int index = 0;
+			while (index < unverifiedUpdates.size) {
+				SimulationSnapshot unverifiedUpdate = unverifiedUpdates.get(index);
 
-			// loop over reversed array
-			for (int i = 0, n = unverifiedUpdates.size; i < n; i += 1) {
-				// peek oldest to see if the timestamp before the snapshot
-				if (unverifiedUpdates.peek().timestamp < verifiedUpdate.timestamp) {
-					unverifiedUpdates.pop();
+				if (unverifiedUpdate.timestamp <= (verifiedUpdate.timestamp) - ping + serverTimeAdjustment) {
+					unverifiedUpdates.removeIndex(index);
 				}
 				else {
-					System.out.println("break early with remaining " + unverifiedUpdates.size);
-					break;
+					verifiedUpdate.px += unverifiedUpdate.px;
+					verifiedUpdate.py += unverifiedUpdate.py;
+					index += 1;
 				}
-			}
-
-			// reverse the array again so we can apply the deltas to the verified update
-			unverifiedUpdates.reverse();
-
-			// apply the combined verified state and deltas to the simulation
-			// apply all other state deltas to it
-			for (int i = 0, n = unverifiedUpdates.size; i < n; i += 1) {
-				System.out.println("correcting: " + i + " " + unverifiedUpdates.get(i).px);
-				verifiedUpdate.px += unverifiedUpdates.get(i).px;
-				verifiedUpdate.px += unverifiedUpdates.get(i).py;
 			}
 
 			// apply that to the simulation for rendering
@@ -194,10 +180,10 @@ public class ClientTest extends ApplicationAdapter {
 		shapeRenderer.begin(ShapeRenderer.ShapeType.Line);
 		shapeRenderer.setColor(1, 1, 0, 1);
 		shapeRenderer.rect(simulation.px, simulation.py, 32, 32);
-//		if (verifiedUpdate != null) {
-//			shapeRenderer.setColor(0, 1, 0, 1);
-//			shapeRenderer.rect(verifiedUpdate.px, verifiedUpdate.py, 32, 32);
-//		}
+		if (verifiedUpdate != null) {
+			shapeRenderer.setColor(0, 1, 0, 1);
+			shapeRenderer.rect(verifiedUpdate.px, verifiedUpdate.py, 32, 32);
+		}
 		shapeRenderer.end();
 	}
 
